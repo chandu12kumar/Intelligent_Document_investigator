@@ -3,6 +3,9 @@ OCR Service using Pillow and pytesseract.
 Provides image-to-text extraction with graceful error handling.
 """
 
+import os
+import shutil
+import platform
 import logging
 from pathlib import Path
 from typing import Optional, Tuple
@@ -19,16 +22,64 @@ except ImportError:
     OCR_AVAILABLE = False
     logger.warning("pytesseract or Pillow not installed. OCR will be unavailable.")
 
+_tesseract_configured = False
 
-def is_ocr_available() -> bool:
-    """Check if OCR dependencies are available."""
+
+def configure_tesseract() -> bool:
+    """
+    Configure Tesseract binary path based on operating system and environment.
+    Supports Windows, Linux/Render, Docker, and custom TESSERACT_CMD env var.
+    """
+    global _tesseract_configured
     if not OCR_AVAILABLE:
         return False
+
+    if _tesseract_configured:
+        return True
+
+    # 1. Custom environment variable override
+    env_cmd = os.getenv("TESSERACT_CMD")
+    if env_cmd and os.path.exists(env_cmd):
+        pytesseract.pytesseract.tesseract_cmd = env_cmd
+        logger.info(f"Configured Tesseract from TESSERACT_CMD: {env_cmd}")
+        _tesseract_configured = True
+        return True
+
+    # 2. System PATH (Linux / Render / Docker default)
+    system_tesseract = shutil.which("tesseract")
+    if system_tesseract:
+        pytesseract.pytesseract.tesseract_cmd = system_tesseract
+        logger.info(f"Configured system Tesseract from PATH: {system_tesseract}")
+        _tesseract_configured = True
+        return True
+
+    # 3. Windows standard installation locations
+    if platform.system() == "Windows":
+        possible_paths = [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            os.path.expanduser(r"~\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"),
+        ]
+        for p in possible_paths:
+            if os.path.exists(p):
+                pytesseract.pytesseract.tesseract_cmd = p
+                logger.info(f"Configured Windows Tesseract path: {p}")
+                _tesseract_configured = True
+                return True
+
+    logger.info("Tesseract binary not found in system PATH or standard locations. OCR disabled.")
+    return False
+
+
+def is_ocr_available() -> bool:
+    """Check if OCR dependencies and Tesseract binary are available."""
+    if not OCR_AVAILABLE:
+        return False
+    configure_tesseract()
     try:
         pytesseract.get_tesseract_version()
         return True
     except Exception:
-        logger.warning("Tesseract not found. OCR disabled.")
         return False
 
 

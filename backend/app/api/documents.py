@@ -99,20 +99,24 @@ async def upload_document(file: UploadFile = File(...)):
     # ── Process document ───────────────────────────────────────────────────────
     try:
         doc_result = process_document(str(filepath))
-    except ValueError as e:
-        # Clean up saved file on error
+    except (ValueError, RuntimeError) as e:
         if filepath.exists():
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
         raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        if filepath.exists():
-            os.remove(filepath)
-        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         if filepath.exists():
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
         logger.error(f"Document processing error: {e}")
-        raise HTTPException(status_code=500, detail=f"Document processing failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail="The document could not be read. Please upload a text-based document or a clearer scanned document.",
+        )
 
     # ── Create chunks ──────────────────────────────────────────────────────────
     try:
@@ -125,13 +129,23 @@ async def upload_document(file: UploadFile = File(...)):
             chunk_overlap=settings.CHUNK_OVERLAP,
         )
     except Exception as e:
+        if filepath.exists():
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
         logger.error(f"Chunking error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to chunk document: {e}")
 
     if not chunks:
+        if filepath.exists():
+            try:
+                os.remove(filepath)
+            except Exception:
+                pass
         raise HTTPException(
-            status_code=422,
-            detail="No text content could be extracted from this document.",
+            status_code=400,
+            detail="The document could not be read. Please upload a text-based document or a clearer scanned document.",
         )
 
     # ── Generate embeddings ────────────────────────────────────────────────────

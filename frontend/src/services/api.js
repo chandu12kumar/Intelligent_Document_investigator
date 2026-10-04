@@ -1,9 +1,9 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const api = axios.create({
-  baseURL: API_BASE,
+  baseURL: API_BASE_URL,
   timeout: 120000, // 2 min timeout for LLM calls
   headers: {
     'Content-Type': 'application/json',
@@ -22,7 +22,7 @@ api.interceptors.response.use(
       return Promise.reject(new Error(message));
     } else if (error.request) {
       return Promise.reject(
-        new Error('Cannot connect to the server. Is the backend running on port 8000?')
+        new Error('Cannot connect to the backend server. Please verify the backend is running and CORS/network settings are correct.')
       );
     }
     return Promise.reject(error);

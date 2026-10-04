@@ -3,6 +3,7 @@ ChromaDB vector store service.
 Persistent storage of document chunks and their embeddings.
 """
 
+import os
 import logging
 import uuid
 import json
@@ -25,6 +26,7 @@ def get_chroma_client() -> chromadb.PersistentClient:
     """Get or create persistent ChromaDB client."""
     global _chroma_client
     if _chroma_client is None:
+        os.makedirs(settings.CHROMA_PATH, exist_ok=True)
         logger.info(f"Initializing ChromaDB at: {settings.CHROMA_PATH}")
         _chroma_client = chromadb.PersistentClient(
             path=settings.CHROMA_PATH,

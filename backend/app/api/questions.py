@@ -69,18 +69,34 @@ async def ask_question(request: QuestionRequest):
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
+    # Validate that LLM_API_KEY is configured
+    api_key = (settings.LLM_API_KEY or "").strip()
+    if not api_key or api_key.startswith("YOUR_") or api_key == "none":
+        raise HTTPException(status_code=400, detail="LLM_API_KEY is not configured.")
+
     logger.info(f"Investigation request: {question[:80]}")
 
     try:
         result = await run_investigation(question)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Investigation validation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         logger.error(f"Investigation failed: {e}")
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
         logger.error(f"Unexpected error during investigation: {e}", exc_info=True)
+        err_msg = str(e)
+        if "model" in err_msg.lower() and ("not found" in err_msg.lower() or "does not exist" in err_msg.lower()):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid LLM_MODEL '{settings.LLM_MODEL}': {err_msg}",
+            )
         raise HTTPException(
             status_code=500,
-            detail=f"Investigation failed due to an internal error. Please try again.",
+            detail="Investigation failed due to an internal error. Please try again.",
         )
 
     # Persist to history

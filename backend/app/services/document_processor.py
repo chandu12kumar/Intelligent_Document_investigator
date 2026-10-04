@@ -210,15 +210,17 @@ def process_image(filepath: str) -> Tuple[List[Dict[str, Any]], bool]:
         (pages_data, ocr_used)
     """
     if not is_ocr_available():
-        raise RuntimeError(
-            "OCR is not available. Install Tesseract and pytesseract to process images."
+        raise ValueError(
+            "OCR is not available on this server. Install Tesseract OCR to process scanned images."
         )
 
     text, ocr_success = extract_text_from_image_file(filepath)
-    if not ocr_success or not text:
-        raise RuntimeError(f"OCR failed or returned empty text for {filepath}")
+    if not ocr_success or not text or not text.strip():
+        raise ValueError(
+            "The document could not be read. Please upload a text-based document or a clearer scanned document."
+        )
 
-    return [{"page": 1, "text": text, "ocr": True}], True
+    return [{"page": 1, "text": text.strip(), "ocr": True}], True
 
 
 # ─── Main Dispatcher ───────────────────────────────────────────────────────────
@@ -249,7 +251,7 @@ def process_document(filepath: str) -> Dict[str, Any]:
     if ext not in SUPPORTED_EXTENSIONS:
         raise ValueError(
             f"Unsupported file type: {ext}. "
-            f"Supported types: {', '.join(SUPPORTED_EXTENSIONS)}"
+            f"Supported types: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
         )
 
     logger.info(f"Processing document: {path.name} (type: {ext})")
@@ -265,10 +267,9 @@ def process_document(filepath: str) -> Dict[str, Any]:
     else:
         raise ValueError(f"Unsupported extension: {ext}")
 
-    if not pages_data:
-        raise RuntimeError(
-            f"No text could be extracted from {path.name}. "
-            "The document may be empty or corrupt."
+    if not pages_data or not any(p.get("text", "").strip() for p in pages_data):
+        raise ValueError(
+            "The document could not be read. Please upload a text-based document or a clearer scanned document."
         )
 
     document_id = compute_document_id(filepath)

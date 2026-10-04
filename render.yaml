@@ -1,0 +1,47 @@
+# Render Blueprint Specification
+# Intelligent Document Investigator
+# Architecture: FastAPI Backend (Web Service) + React Vite Frontend (Static Site)
+
+services:
+  # ── SERVICE 1: FastAPI Backend (Web Service) ───────────────────
+  - type: web
+    name: intelligent-document-investigator-backend
+    env: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      - key: CHROMA_PATH
+        value: ./data/chroma
+      - key: UPLOAD_PATH
+        value: ./data/uploads
+      - key: EMBEDDING_MODEL
+        value: all-MiniLM-L6-v2
+      - key: FRONTEND_URL
+        value: http://localhost:5173
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+  # ── SERVICE 2: React Frontend (Static Site) ────────────────────
+  - type: web
+    name: intelligent-document-investigator-frontend
+    env: static
+    rootDir: frontend
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    autoDeploy: true
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

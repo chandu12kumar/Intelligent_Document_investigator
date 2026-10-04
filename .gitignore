@@ -1,6 +1,7 @@
 # ─── Environment & Secrets ──────────────────────────────────────────────────────
-backend/.env
 .env
+*.env
+backend/.env
 .env.local
 .env.*.local
 

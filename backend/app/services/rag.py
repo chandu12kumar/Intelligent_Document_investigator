@@ -755,6 +755,17 @@ async def run_investigation(question: str) -> InvestigationResult:
             except (json.JSONDecodeError, ValidationError) as parse_err:
                 logger.warning(f"[{investigation_id}] JSON parse failed ({parse_err}), using synthesizer")
         except Exception as e:
+            err_msg = str(e)
+            if "model" in err_msg.lower() and (
+                "does not exist" in err_msg.lower()
+                or "not found" in err_msg.lower()
+                or "not_found" in err_msg.lower()
+                or "invalid_model" in err_msg.lower()
+            ):
+                logger.error(f"[{investigation_id}] Invalid LLM_MODEL '{settings.LLM_MODEL}': {e}")
+                raise ValueError(
+                    f"Invalid LLM_MODEL '{settings.LLM_MODEL}'. Please specify a valid model in your environment variables."
+                )
             logger.warning(f"[{investigation_id}] LLM call error: {e}. Using natural synthesizer.")
 
     if not llm_succeeded:

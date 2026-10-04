@@ -127,6 +127,8 @@
 
 ---
 
+---
+
 ## Folder Structure
 
 ```
@@ -134,16 +136,16 @@ intelligent-document-investigator/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI app + CORS + routing
-│   │   ├── config.py            # Environment-based settings
+│   │   ├── config.py            # Environment-based settings + FRONTEND_URL CORS
 │   │   ├── api/
 │   │   │   ├── documents.py     # Upload/list/delete endpoints
 │   │   │   └── questions.py     # Investigation + history endpoints
 │   │   ├── services/
 │   │   │   ├── document_processor.py  # PDF/DOCX/TXT/image processing
-│   │   │   ├── ocr_service.py         # Tesseract OCR wrapper
+│   │   │   ├── ocr_service.py         # Tesseract OCR (env-aware path)
 │   │   │   ├── chunker.py             # Intelligent text chunking
-│   │   │   ├── embeddings.py          # SentenceTransformer embeddings
-│   │   │   ├── vector_store.py        # ChromaDB operations
+│   │   │   ├── embeddings.py          # SentenceTransformer embeddings (singleton)
+│   │   │   ├── vector_store.py        # ChromaDB operations (lazy init)
 │   │   │   ├── rag.py                 # Full RAG pipeline + LLM
 │   │   │   ├── conflict_detector.py   # Multi-level conflict detection
 │   │   │   ├── confidence.py          # Confidence scoring
@@ -151,27 +153,26 @@ intelligent-document-investigator/
 │   │   └── models/
 │   │       └── schemas.py       # Pydantic models
 │   ├── data/
-│   │   ├── uploads/             # Uploaded documents
-│   │   └── chroma/              # ChromaDB persistent storage
+│   │   ├── uploads/             # Uploaded documents (ephemeral on Render free)
+│   │   └── chroma/              # ChromaDB persistent storage (ephemeral on Render free)
+│   ├── Dockerfile               # Docker build with Tesseract OCR (for Render Docker deploys)
+│   ├── .dockerignore
 │   ├── requirements.txt
 │   ├── .env                     # Secrets (NOT committed)
 │   ├── .env.example             # Template
-│   └── run.py                   # Uvicorn runner
+│   └── run.py                   # Uvicorn runner (local dev)
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── components/          # Reusable UI components
 │   │   ├── pages/               # Page components
-│   │   ├── services/api.js      # API client
+│   │   ├── services/api.js      # Axios API client (uses VITE_API_URL)
 │   │   └── index.css            # Global styles
-│   ├── .env                     # VITE_API_URL
+│   ├── .env                     # VITE_API_URL (NOT committed)
+│   ├── .env.example             # Template
 │   └── vite.config.js
 │
-├── sample_documents/            # Demo documents with intentional conflict
-│   ├── policy_a.txt             # 15 days medical leave
-│   ├── policy_b.txt             # 12 days medical leave (CONFLICT!)
-│   └── company_policy.txt       # General HR procedures
-│
+├── render.yaml                  # Render Blueprint (optional)
 ├── README.md
 └── .gitignore
 ```
@@ -202,6 +203,10 @@ venv\Scripts\activate
 
 # 4. Install dependencies
 pip install -r requirements.txt
+
+# 5. Copy and configure environment
+cp .env.example .env
+# Edit .env with your actual LLM_API_KEY
 ```
 
 ---
@@ -215,7 +220,11 @@ cd frontend
 # 2. Install dependencies
 npm install
 
-# 3. Start development server
+# 3. Copy environment file
+cp .env.example .env
+# Edit if you need a different backend URL
+
+# 4. Start development server
 npm run dev
 ```
 
@@ -231,14 +240,16 @@ Tesseract is required for OCR (scanned PDFs and image files). Without it, only n
 3. Add to PATH: `C:\Program Files\Tesseract-OCR\`
 4. Verify: `tesseract --version`
 
+> The application auto-detects the Tesseract binary on Windows, Linux, and Render (via PATH). You can also override with the `TESSERACT_CMD` environment variable.
+
 ### macOS
 ```bash
 brew install tesseract
 ```
 
-### Ubuntu/Debian
+### Ubuntu/Debian (or Render via Dockerfile)
 ```bash
-sudo apt install tesseract-ocr
+sudo apt install tesseract-ocr tesseract-ocr-eng
 ```
 
 ---
@@ -249,7 +260,7 @@ sudo apt install tesseract-ocr
 
 ```env
 # Required: Your OpenAI API key
-LLM_API_KEY=sk-proj-your-actual-key-here
+LLM_API_KEY=YOUR_API_KEY_HERE
 
 # Model to use for answer generation
 LLM_MODEL=gpt-4o-mini
@@ -258,11 +269,14 @@ LLM_MODEL=gpt-4o-mini
 CHROMA_PATH=./data/chroma
 UPLOAD_PATH=./data/uploads
 
-# Embedding model (downloads automatically)
+# Embedding model (downloads automatically on first run)
 EMBEDDING_MODEL=all-MiniLM-L6-v2
+
+# CORS: The frontend URL that is allowed to access the backend
+FRONTEND_URL=http://localhost:5173
 ```
 
-> ⚠️ NEVER commit `backend/.env`. It's in `.gitignore`.
+> ⚠️ NEVER commit `backend/.env`. It's in `.gitignore`. Copy `backend/.env.example` and fill in your values.
 
 ### Frontend (`frontend/.env`)
 
@@ -308,7 +322,7 @@ Upload all 3 files from `sample_documents/`
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/` | API root info |
-| GET | `/health` | Health + status |
+| GET | `/health` | Health + status check (used by Render) |
 | POST | `/documents/upload` | Upload & process document |
 | GET | `/documents` | List all indexed documents |
 | DELETE | `/documents/{id}` | Delete document |
@@ -438,18 +452,193 @@ When evidence is insufficient, the LLM is instructed to say so explicitly rather
 
 ---
 
+## 🚀 Render Deployment
+
+### Architecture
+
+```
+Render Static Site (Frontend)           Render Web Service (Backend)
+  https://FRONTEND.onrender.com    →      https://BACKEND.onrender.com
+        React + Vite                          FastAPI + Docker
+                                             Tesseract OCR
+                                             ChromaDB (local)
+                                             SentenceTransformers
+```
+
+> ⚠️ **Storage Note (IMPORTANT for Hackathon):** Render's free tier uses an ephemeral local filesystem. Uploaded documents and ChromaDB data will be **lost on every redeploy or instance restart**. This is acceptable for a hackathon demo. For production, add persistent storage (AWS S3 / Render Disk / Supabase).
+
+---
+
+### Deployment Order
+
+Follow this exact order to avoid CORS and URL configuration errors:
+
+#### STEP 1 — Push to GitHub
+```bash
+git add -A
+git commit -m "feat: render deployment configuration"
+git push origin main
+```
+> Verify `.env` and `backend/.env` are NOT in the commit (check git status).
+
+---
+
+#### STEP 2 — Deploy Backend First
+
+**Render → New → Web Service**
+
+| Setting | Value |
+|---------|-------|
+| Repository | Your GitHub repo |
+| Branch | `main` |
+| Root Directory | `backend` |
+| Runtime | `Docker` (recommended, for Tesseract OCR) |
+| Build Command | *(auto from Dockerfile)* |
+| Start Command | *(auto from Dockerfile CMD)* |
+| Health Check Path | `/health` |
+
+> **If not using Docker** (Python runtime instead):
+> - Runtime: `Python 3`
+> - Build Command: `pip install -r requirements.txt`
+> - Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+> - ⚠️ Tesseract OCR will NOT be available without Docker.
+
+**Environment Variables (set in Render Dashboard):**
+
+| Variable | Value |
+|----------|-------|
+| `LLM_API_KEY` | Your actual OpenAI API key |
+| `LLM_MODEL` | `gpt-4o-mini` |
+| `CHROMA_PATH` | `./data/chroma` |
+| `UPLOAD_PATH` | `./data/uploads` |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` |
+| `FRONTEND_URL` | *(leave empty for now, fill after frontend deploy)* |
+
+Click **Deploy**.
+
+---
+
+#### STEP 3 — Test Backend
+
+Once deployed, test these URLs:
+
+```
+https://YOUR-BACKEND.onrender.com/
+https://YOUR-BACKEND.onrender.com/health       ← must return {"status": "healthy"}
+https://YOUR-BACKEND.onrender.com/docs         ← Swagger UI
+```
+
+> If `/health` returns `{"status": "healthy"}` you are good to proceed.
+
+---
+
+#### STEP 4 — Deploy Frontend
+
+**Render → New → Static Site**
+
+| Setting | Value |
+|---------|-------|
+| Repository | Your GitHub repo |
+| Branch | `main` |
+| Root Directory | `frontend` |
+| Build Command | `npm install && npm run build` |
+| Publish Directory | `dist` |
+
+**Environment Variables:**
+
+| Variable | Value |
+|----------|-------|
+| `VITE_API_URL` | `https://YOUR-BACKEND.onrender.com` |
+
+> Replace `YOUR-BACKEND` with your actual Render backend service name.
+
+Click **Deploy**.
+
+---
+
+#### STEP 5 — Connect Frontend URL to Backend CORS
+
+1. Copy the deployed frontend URL: `https://YOUR-FRONTEND.onrender.com`
+2. Go to **Backend service → Environment** in Render Dashboard
+3. Set `FRONTEND_URL` = `https://YOUR-FRONTEND.onrender.com`
+4. Click **Save** → Render will automatically redeploy the backend
+
+---
+
+#### STEP 6 — Final Tests
+
+Test the complete flow:
+
+```
+✅ https://YOUR-BACKEND.onrender.com/health
+✅ https://YOUR-BACKEND.onrender.com/docs
+✅ https://YOUR-FRONTEND.onrender.com           (React app loads)
+✅ Upload a document                             (no CORS errors)
+✅ Ask a natural-language question               (LLM answer returned)
+✅ Check source citations                        (document + page shown)
+✅ Upload conflicting documents + ask question   (CONFLICTING detected)
+```
+
+---
+
+### Full Environment Variables Reference
+
+#### Backend (Render Web Service)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `LLM_API_KEY` | ✅ Yes | Your OpenAI API key |
+| `LLM_MODEL` | ✅ Yes | e.g. `gpt-4o-mini` |
+| `CHROMA_PATH` | Optional | Default: `./data/chroma` |
+| `UPLOAD_PATH` | Optional | Default: `./data/uploads` |
+| `EMBEDDING_MODEL` | Optional | Default: `all-MiniLM-L6-v2` |
+| `FRONTEND_URL` | ✅ Yes | Your deployed frontend URL (for CORS) |
+| `TESSERACT_CMD` | Optional | Override Tesseract binary path |
+
+#### Frontend (Render Static Site)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_API_URL` | ✅ Yes | Your deployed backend URL |
+
+---
+
+### render.yaml (Optional Blueprint)
+
+A `render.yaml` file is included at the root of this project. It describes both services for Render's Infrastructure as Code (Blueprint) feature. However, **secrets like `LLM_API_KEY` and `VITE_API_URL` must still be set manually in the Render Dashboard** — they are marked `sync: false` in the YAML to prevent accidental exposure.
+
+---
+
+### Tesseract OCR on Render
+
+The backend includes a `Dockerfile` at `backend/Dockerfile` that:
+1. Uses `python:3.11-slim` as the base
+2. Installs `tesseract-ocr` and `tesseract-ocr-eng` via `apt-get`
+3. Installs all Python requirements
+4. Starts the app with dynamic `$PORT`
+
+**Use Docker runtime on Render** to enable full OCR support for scanned PDFs and image uploads.
+
+The OCR service auto-detects Tesseract in this order:
+1. `TESSERACT_CMD` environment variable (if set)
+2. System PATH (`which tesseract`)
+3. Windows standard installation paths (for local dev)
+4. Graceful degradation — OCR disabled if not found (non-fatal)
+
+---
+
 ## Future Improvements
 
-1. **Multi-language OCR** — Tesseract supports 100+ languages
-2. **Re-ranking** — Cross-encoder re-ranking for better retrieval precision
-3. **Graph-based relationships** — Document relationship mapping
-4. **Timeline extraction** — Automatic detection of date-based conflicts
-5. **Export reports** — PDF investigation reports
-6. **Authentication** — Multi-user support with document namespaces
-7. **Streaming responses** — Real-time LLM streaming via SSE
-8. **Table extraction** — Structured data from PDF tables
-9. **Self-hosted LLM** — Ollama + Llama 3 for fully local operation
-10. **Citation highlighting** — Highlight exact quotes in original documents
+1. **Persistent storage** — Replace local ChromaDB + uploads with Render Disk, AWS S3, or Supabase
+2. **Multi-language OCR** — Tesseract supports 100+ languages
+3. **Re-ranking** — Cross-encoder re-ranking for better retrieval precision
+4. **Graph-based relationships** — Document relationship mapping
+5. **Timeline extraction** — Automatic detection of date-based conflicts
+6. **Export reports** — PDF investigation reports
+7. **Authentication** — Multi-user support with document namespaces
+8. **Streaming responses** — Real-time LLM streaming via SSE
+9. **Table extraction** — Structured data from PDF tables
+10. **Self-hosted LLM** — Ollama + Llama 3 for fully local operation
 
 ---
 
@@ -480,4 +669,5 @@ Organizations have dozens of policy documents, circulars, and handbooks — ofte
 ---
 
 *Built for Hackathon — Problem Statement ALG-AI-02*  
-*Stack: React + FastAPI + ChromaDB + SentenceTransformers + OpenAI*
+*Stack: React + FastAPI + ChromaDB + SentenceTransformers + OpenAI*  
+*Deployment: Render (Web Service + Static Site)*

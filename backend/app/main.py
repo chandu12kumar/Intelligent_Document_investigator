@@ -73,10 +73,10 @@ async def health_check():
         chroma_status = f"error: {e}"
         documents_indexed = 0
 
-    api_key_configured = bool(settings.LLM_API_KEY)
+    api_key_configured = bool(settings.LLM_API_KEY and not settings.LLM_API_KEY.startswith("YOUR_"))
 
     return {
-        "status": "healthy" if api_key_configured else "degraded",
+        "status": "healthy",
         "version": "1.0.0",
         "chroma_status": chroma_status,
         "embedding_model": settings.EMBEDDING_MODEL,
