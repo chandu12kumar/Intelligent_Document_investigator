@@ -46,4 +46,7 @@ Thumbs.db
 
 # ─── ML Models cache ─────────────────────────────────────────────────────────────
 .cache/huggingface/
-models/
+# Ignore top-level ML model weight directories, but NOT app/models/ Python package
+/models/
+backend/models/
+!backend/app/models/
